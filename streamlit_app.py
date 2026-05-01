@@ -1,8 +1,8 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import random
 import base64
+import os
 from datetime import datetime
 
 # --- 1. CONFIGURACIÓN VISUAL Y FONDO ---
@@ -10,63 +10,50 @@ st.set_page_config(page_title="Gestión de Rifa", page_icon="💎")
 
 def get_base64(bin_file):
     with open(bin_file, 'rb') as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
+        return base64.b64encode(f.read()).decode()
 
 def set_background(png_file):
     try:
         bin_str = get_base64(png_file)
-        page_bg_img = '''
+        st.markdown(f'''
         <style>
-        .stApp {
-            background-image: url("data:image/png;base64,%s");
+        .stApp {{
+            background-image: url("data:image/png;base64,{bin_str}");
             background-size: cover;
             background-attachment: fixed;
-        }
-        /* Ajuste de transparencia para los formularios y tablas */
-        .stForm, .stDataFrame {
+        }}
+        .stForm, .stDataFrame {{
             background-color: rgba(255, 255, 255, 0.85);
             padding: 20px;
             border-radius: 15px;
-            border: 1px solid #ddd;
-        }
-        /* Ocultar el header predeterminado de Streamlit para más limpieza */
-        header {visibility: hidden;}
+        }}
+        header {{visibility: hidden;}}
         </style>
-        ''' % bin_str
-        st.markdown(page_bg_img, unsafe_allow_html=True)
-    except FileNotFoundError:
-        st.warning("⚠️ Sube 'fondo_rifa.jpeg' a GitHub para ver el diseño.")
+        ''', unsafe_allow_html=True)
+    except: pass
 
 set_background('fondo_rifa.jpeg')
 
-# --- 2. CONEXIÓN A BASE DE DATOS ---
-try:
-    # Definimos la URL directamente aquí para asegurar la conexión
-    SHEET_URL = "https://docs.google.com/spreadsheets/d/1XCdSFkFmHj_AbrcdQyg4VhyH5sXZjkU72yeRBIZ9Vgc/edit#gid=0"
-    
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    # Forzamos la lectura usando la URL directa
-    df_existente = conn.read(spreadsheet=SHEET_URL, ttl="0s")
-except Exception as e:
-    st.error(f"Error de conexión: {e}")
-    df_existente = pd.DataFrame()
+# --- 2. GESTIÓN DE DATOS (PLAN B: ARCHIVO LOCAL) ---
+archivo_datos = 'base_datos_rifa.csv'
 
-# --- 3. LÓGICA DE NÚMEROS ---
+# Función para cargar datos
+def cargar_datos():
+    if os.path.exists(archivo_datos):
+        return pd.read_csv(archivo_datos)
+    return pd.DataFrame(columns=["Fecha", "Cliente", "WhatsApp", "Combinaciones", "Moneda", "Estado", "Valor Total"])
+
+df_existente = cargar_datos()
+
+# Lógica de números disponibles
 todos_los_numeros = [f"{i:03d}" for i in range(1000)]
-if not df_existente.empty:
-    numeros_ocupados = []
-    # Asegurarnos de limpiar la lista de números ocupados
-    for combo in df_existente["Combinaciones"].astype(str):
-        numeros_ocupados.extend([n.strip() for n in combo.split(",")])
-    disponibles = [n for n in todos_los_numeros if n not in numeros_ocupados]
-else:
-    disponibles = todos_los_numeros
+numeros_ocupados = []
+for combo in df_existente["Combinaciones"].astype(str):
+    numeros_ocupados.extend([n.strip() for n in combo.split(",")])
+disponibles = [n for n in todos_los_numeros if n not in numeros_ocupados]
 
-# --- 4. INTERFAZ DE REGISTRO (SIN TEXTOS DE VIAJE) ---
-# Espacio superior para que se vea el logo del fondo
-st.markdown("<br><br><br><br><br><br>", unsafe_allow_html=True)
-
+# --- 3. FORMULARIO ---
+st.markdown("<br><br><br><br><br>", unsafe_allow_html=True)
 with st.form("formulario_rifa"):
     st.markdown("### 📝 Registro de Boletas")
     nombre = st.text_input("Nombre del Cliente")
@@ -76,20 +63,14 @@ with st.form("formulario_rifa"):
     moneda = c1.selectbox("Moneda", ["COP", "MXN", "USD"])
     pago_estado = c2.selectbox("Estado", ["Pagado", "Abono", "Debe"])
     
-    modo_num = st.radio("Asignación de números", ["4 Aleatorios (Automático)", "1 Manual + 3 Aleatorios"])
-    num_manual = ""
-    if "Manual" in modo_num:
-        num_manual = st.text_input("Número manual (3 cifras):", max_chars=3)
+    modo_num = st.radio("Asignación", ["4 Aleatorios", "1 Manual + 3 Aleatorios"])
+    num_manual = st.text_input("Número manual (3 cifras)", max_chars=3) if "Manual" in modo_num else ""
 
-    if st.form_submit_button("💎 GENERAR Y GUARDAR"):
+    if st.form_submit_button("💎 GUARDAR VENTA"):
         if nombre and whatsapp:
             final_nums = []
-            
-            if "Manual" in modo_num and num_manual:
-                n_man = num_manual.zfill(3)
-                if n_man in disponibles:
-                    final_nums.append(n_man)
-                    disponibles.remove(n_man)
+            if num_manual and num_manual.zfill(3) in disponibles:
+                final_nums.append(num_manual.zfill(3))
             
             random.shuffle(disponibles)
             while len(final_nums) < 4:
@@ -108,21 +89,20 @@ with st.form("formulario_rifa"):
             }])
             
             df_final = pd.concat([df_existente, nueva_venta], ignore_index=True)
-            conn.update(data=df_final)
+            # GUARDADO FÍSICO
+            df_final.to_csv(archivo_datos, index=False)
             
             st.success(f"✅ ¡Guardado! Números: {', '.join(final_nums)}")
             st.balloons()
+            st.rerun() # Para actualizar la tabla abajo
         else:
-            st.warning("⚠️ Completa los datos del cliente.")
+            st.warning("⚠️ Completa los datos.")
 
-# --- 5. TABLA DE CONTROL ---
+# --- 4. TABLA DE CONTROL ---
 st.divider()
-if not df_existente.empty:
-    st.write("### 📊 Control General")
-    st.dataframe(df_existente, use_container_width=True)
-    
-    # Resumen rápido
-    r1, r2, r3 = st.columns(3)
-    r1.metric("Recaudo COP", f"${df_existente[df_existente['Moneda']=='COP']['Valor Total'].sum():,.0f}")
-    r2.metric("Recaudo MXN", f"${df_existente[df_existente['Moneda']=='MXN']['Valor Total'].sum():,.2f}")
-    r3.metric("Recaudo USD", f"${df_existente[df_existente['Moneda']=='USD']['Valor Total'].sum():,.2f}")
+st.write("### 📊 Ventas Registradas")
+st.dataframe(df_existente, use_container_width=True)
+
+# Botón para que tu hija descargue el reporte desde la web
+csv = df_existente.to_csv(index=False).encode('utf-8')
+st.download_button("📥 Descargar Reporte Excel (CSV)", data=csv, file_name="ventas_rifa.csv", mime="text/csv")
