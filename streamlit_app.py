@@ -6,7 +6,6 @@ import base64
 from datetime import datetime
 
 # --- 1. CONFIGURACIÓN VISUAL Y FONDO ---
-st.set_page_config(page_title="Rifa Viaje a Colombia ✈️", page_icon="💎")
 
 def get_base64(bin_file):
     with open(bin_file, 'rb') as f:
