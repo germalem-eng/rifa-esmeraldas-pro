@@ -40,12 +40,16 @@ def set_background(png_file):
 
 set_background('fondo_rifa.jpeg')
 
-# --- 2. CONEXIÓN A GOOGLE SHEETS ---
+# --- 2. CONEXIÓN A BASE DE DATOS ---
 try:
+    # Definimos la URL directamente aquí para asegurar la conexión
+    SHEET_URL = "https://docs.google.com/spreadsheets/d/1XCdSFkFmHj_AbrcdQyg4VhyH5sXZjkU72yeRBIZ9Vgc/edit#gid=0"
+    
     conn = st.connection("gsheets", type=GSheetsConnection)
-    df_existente = conn.read(ttl="0s")
-except Exception:
-    st.error("Error de conexión a Google Sheets. Verifica los Secrets en Streamlit Cloud.")
+    # Forzamos la lectura usando la URL directa
+    df_existente = conn.read(spreadsheet=SHEET_URL, ttl="0s")
+except Exception as e:
+    st.error(f"Error de conexión: {e}")
     df_existente = pd.DataFrame()
 
 # --- 3. LÓGICA DE NÚMEROS ---
